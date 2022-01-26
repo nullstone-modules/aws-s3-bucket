@@ -4,6 +4,10 @@ resource "aws_s3_bucket" "this" {
   tags          = local.tags
   force_destroy = true
 
+  versioning {
+    enabled = var.versioning
+  }
+
   dynamic "server_side_encryption_configuration" {
     for_each = var.server_side_encryption ? ["fake"] : []
 
