@@ -1,6 +1,6 @@
 variable "versioning" {
   type        = bool
-  default     = false
+  default     = true
   description = <<EOF
 Use the versioning feature of S3 to keep multiple versions of each object stored in your bucket.
 With versioning you can list, retrieve, and restore multiple versions of your objects.

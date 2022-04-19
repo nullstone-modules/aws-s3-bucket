@@ -1,4 +1,7 @@
 resource "aws_s3_bucket" "this" {
+  #bridgecrew:skip=CKV_AWS_144: Skipping cross-region replication, not vital for compliance benchmarks
+  #bridgecrew:skip=CKV_AWS_18: Skipping cross-region replication, not vital for compliance benchmarks
+  #bridgecrew:skip=CKV_AWS_21: This is a false positive, versioning is enabled via aws_s3_bucket_versioning resource
   bucket        = local.resource_name
   tags          = local.tags
   force_destroy = true
@@ -7,6 +10,13 @@ resource "aws_s3_bucket" "this" {
 resource "aws_s3_bucket_acl" "this" {
   bucket = aws_s3_bucket.this.id
   acl    = "private"
+}
+
+resource "aws_s3_bucket_public_access_block" "this" {
+  bucket = aws_s3_bucket.this.id
+
+  block_public_acls   = true
+  block_public_policy = true
 }
 
 resource "aws_s3_bucket_versioning" "this" {
