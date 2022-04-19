@@ -1,0 +1,12 @@
+org_name: nullstone
+name: aws-s3-bucket
+friendly_name: S3 Bucket
+description: |
+    Creates a private S3 bucket as a datastore that can connect to Nullstone apps.
+category: datastore
+type: bucket/aws-s3
+appCategories: []
+layer: database
+is_public: true
+provider_types:
+    - aws
