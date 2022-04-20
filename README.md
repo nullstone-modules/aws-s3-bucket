@@ -16,8 +16,15 @@ Security scanning is graciously provided by Bridgecrew. Bridgecrew is the leadin
 
 ## Inputs
 
-- `versioning` - Enable versioning of objects in the S3 store.
-- `server_side_encryption` - Enable encryption of objects as they are written in the S3 store. Access the objects the same way, decryption occurs automatically. 
+- `versioning: bool`
+    - Use the versioning feature of S3 to keep multiple versions of each object stored in your bucket.
+      With versioning you can list, retrieve, and restore multiple versions of your objects.
+    - Default: `true`
+
+- `server_side_encryption: bool`
+    - Encrypts all data at the object level as it is being written to S3, automatically decrypts it as you access it.
+      The way you access objects (presigned URLs, listing objects, and retrieving objects) all works the same way as if they were not encrypted.
+    - Default: `true`
 
 ## Outputs
 
