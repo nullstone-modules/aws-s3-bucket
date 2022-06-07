@@ -25,7 +25,7 @@ jobs:
 
       # Package files into tgz
       - name: Package
-        run: tar -cvzf module.tgz *.tf
+        run: tar -cvzf module.tgz *.tf README.md
 
       - name: Find version
         id: version
