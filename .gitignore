@@ -29,6 +29,4 @@ override.tf.json
 # example: *tfplan*
 
 .idea/
-.nullstone.json
-.terraform.lock.hcl
 __backend__.tf
