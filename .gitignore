@@ -30,3 +30,4 @@ override.tf.json
 
 .idea/
 __backend__.tf
+.nullstone/active-workspace.yml
