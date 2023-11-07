@@ -18,11 +18,20 @@ resource "aws_s3_bucket_ownership_controls" "default" {
 resource "aws_s3_bucket_acl" "this" {
   depends_on = [
     aws_s3_bucket_ownership_controls.default,
-    aws_s3_bucket_public_access_block.this
+    time_sleep.wait-for-public-access-block
   ]
 
   bucket = aws_s3_bucket.this.id
   acl    = var.public_read_only ? "public-read" : "private"
+}
+
+resource "time_sleep" "wait-for-public-access-block" {
+  triggers = {
+    public_read_only = var.public_read_only
+  }
+  create_duration = "5s"
+
+  depends_on = [aws_s3_bucket_public_access_block.this]
 }
 
 resource "aws_s3_bucket_public_access_block" "this" {
