@@ -14,6 +14,6 @@ data "aws_iam_policy_document" "public_read_only" {
       identifiers = ["*"]
       type        = "*"
     }
-    resources = ["${aws_s3_bucket.this.bucket}/*"]
+    resources = ["${aws_s3_bucket.this.arn}/*"]
   }
 }
