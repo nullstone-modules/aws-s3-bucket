@@ -32,7 +32,7 @@ variable "cors_origins" {
   type        = set(string)
   default     = []
   description = <<EOF
-A set of origins that are allowed to make GET requests to this S3 bucket.
+A set of origins that are allowed to make requests to this S3 bucket.
 Provide a set of origins (e.g. ["https://acme.com", "https://test.com"]) to allow these websites to fetch objects from this bucket.
 This is optional. If you don't provide any origins, no CORS configuration will be applied to this bucket.
 If you provide origins, you must also provide cors_methods.
