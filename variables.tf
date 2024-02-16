@@ -29,7 +29,7 @@ EOF
 }
 
 variable "cors_origins" {
-  type        = list(string)
+  type        = set(string)
   default     = []
   description = <<EOF
 A set of origins that are allowed to make GET requests to this S3 bucket.
@@ -40,7 +40,7 @@ EOF
 }
 
 variable "cors_methods" {
-  type        = list(string)
+  type        = set(string)
   default     = ["GET"]
   description = <<EOF
 A set of HTTP verbs that are allowed to be used when making CORS requests to this S3 bucket.

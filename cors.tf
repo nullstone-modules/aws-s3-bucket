@@ -1,5 +1,5 @@
 resource "aws_s3_bucket_cors_configuration" "example" {
-  count = len(var.cors_origins) > 0 && len(var.cors_methods) > 0 ? 1 : 0
+  count = length(var.cors_origins) > 0 && length(var.cors_methods) > 0 ? 1 : 0
 
   bucket = aws_s3_bucket.this.id
 
