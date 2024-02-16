@@ -27,3 +27,12 @@ If you make this bucket public, be sure to turn off server_side_encryption unles
 When accessing a file via a public url, the file will not be able to be decrypted.
 EOF
 }
+
+variable "cors_origins" {
+  type        = set(string)
+  default     = []
+  description = <<EOF
+A set of origins that are allowed to make GET requests to this S3 bucket.
+Provide a set of origins (e.g. ["https://acme.com", "https://test.com"]) to allow these websites to fetch objects from this bucket.
+EOF
+}
