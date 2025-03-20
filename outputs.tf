@@ -17,3 +17,8 @@ output "db_port" {
   value       = ""
   description = "string ||| The port for s3 buckets is blank."
 }
+
+output "db_region" {
+  value       = aws_s3_bucket.this.region
+  description = "string ||| The region of the created S3 bucket."
+}
