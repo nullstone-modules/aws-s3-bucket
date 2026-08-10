@@ -1,7 +1,7 @@
 # 0.3.0 (Aug 10, 2026)
-* Added `crossaccount_account_ids` to share this bucket with other AWS accounts through S3 access points.
+* Added `trusted_account_ids` to share this bucket with other AWS accounts through S3 access points.
 * The bucket policy is now created whenever any statement applies, not only for `public_read_only`. `aws_s3_bucket_policy.public_read_only` was renamed to `aws_s3_bucket_policy.this`; a `moved` block handles the state migration.
-* `public_read_only` and `crossaccount_account_ids` are mutually exclusive and now fail at apply time rather than silently at runtime.
+* `public_read_only` and `trusted_account_ids` are mutually exclusive and now fail at apply time rather than silently at runtime.
 
 # 0.2.0 (Jun 25, 2026)
 * Upgraded `ns` provider.

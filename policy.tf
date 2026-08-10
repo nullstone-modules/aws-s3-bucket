@@ -1,5 +1,5 @@
 locals {
-  crossaccount_enabled = length(var.crossaccount_account_ids) > 0
+  crossaccount_enabled = length(var.trusted_account_ids) > 0
   needs_bucket_policy  = var.public_read_only || local.crossaccount_enabled
 }
 
@@ -23,7 +23,7 @@ resource "aws_s3_bucket_policy" "this" {
     // fail silently at runtime rather than at apply time.
     precondition {
       condition     = !(var.public_read_only && local.crossaccount_enabled)
-      error_message = "public_read_only cannot be combined with crossaccount_account_ids. A public bucket policy activates RestrictPublicBuckets, which blocks the cross-account access point delegation."
+      error_message = "public_read_only cannot be combined with trusted_account_ids. A public bucket policy activates RestrictPublicBuckets, which blocks the cross-account access point delegation."
     }
   }
 }
@@ -66,7 +66,7 @@ data "aws_iam_policy_document" "this" {
       condition {
         test     = "StringEquals"
         variable = "s3:DataAccessPointAccount"
-        values   = tolist(var.crossaccount_account_ids)
+        values   = tolist(var.trusted_account_ids)
       }
     }
   }

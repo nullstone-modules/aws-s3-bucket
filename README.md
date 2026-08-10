@@ -34,7 +34,7 @@ save and retrieve files without having to think about persistence. For more info
 | `public_read_only`        | boolean          | `false`    | If toggled on, the contents of this S3 bucket will be made publicly accessible. Public access will be read-only.                                                                                                                                           |
 | `cors_orgins`             | list(string)     | `[]`       | A set of origins that are allowed to make GET requests to this S3 bucket.                                                                                                                                                                                  |
 | `cors_methods`            | list(string)     | `["GET"]`  | A set of HTTP verbs that are allowed to be used when making CORS requests to this S3 bucket.                                                                                                                                                               |
-| `crossaccount_account_ids` | set(string)     | `[]`       | AWS account IDs allowed to reach this bucket through an S3 access point. See [Sharing across AWS accounts](#sharing-across-aws-accounts).                                                                                                                   |
+| `trusted_account_ids` | set(string)     | `[]`       | AWS account IDs allowed to reach this bucket through an S3 access point. See [Sharing across AWS accounts](#sharing-across-aws-accounts).                                                                                                                   |
 
 ## Outputs
 | Name                      | Description                                                                    |
@@ -56,13 +56,13 @@ This S3 bucket can be connected to many applications in order to share files bet
 ---
 
 ## Sharing across AWS accounts
-To let an application in a different AWS account use this bucket, add that account's ID to `crossaccount_account_ids`. The application then connects through an `aws-s3-access-point` datastore in its own account.
+To let an application in a different AWS account use this bucket, add that account's ID to `trusted_account_ids`. The application then connects through an `aws-s3-access-point` datastore in its own account.
 
 You grant trust **once per account, not once per application**. The consuming account creates and owns its own S3 access point, and decides which of its applications may use it. This bucket's policy simply delegates to any access point owned by a trusted account, so it never needs to change as applications come and go.
 
 The delegation statement matches on `s3:DataAccessPointAccount`. Because the account ID is fixed, the statement is **not** considered public, so `block_public_policy` remains enabled.
 
 ### Limitations
-`crossaccount_account_ids` cannot be combined with `public_read_only`. A public bucket policy activates `RestrictPublicBuckets`, which blocks all cross-account access — including non-public delegation to specific accounts. Setting both fails at apply time rather than silently at runtime.
+`trusted_account_ids` cannot be combined with `public_read_only`. A public bucket policy activates `RestrictPublicBuckets`, which blocks all cross-account access — including non-public delegation to specific accounts. Setting both fails at apply time rather than silently at runtime.
 
 **Encryption is not yet handled.** While `server_side_encryption` is on, this bucket uses the AWS-managed `aws/s3` KMS key, whose key policy is immutable. Objects encrypted with it **cannot be read from another account** under any configuration — the access point will be created successfully and listing will work, but every `GetObject` fails on decrypt. Until this module supports an encryption mode that works across accounts, cross-account sharing is only usable with `server_side_encryption = false`.

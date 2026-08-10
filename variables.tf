@@ -48,7 +48,7 @@ This is optional and only used if you also specify cors_origins.
 EOF
 }
 
-variable "crossaccount_account_ids" {
+variable "trusted_account_ids" {
   type        = set(string)
   default     = []
   description = <<EOF
