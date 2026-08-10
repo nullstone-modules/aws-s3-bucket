@@ -71,7 +71,11 @@ The level you set is a **ceiling**. The consuming account can narrow it further 
 
 The delegation statements match on `s3:DataAccessPointAccount`. Because the account IDs are fixed, they are **not** considered public, so `block_public_policy` remains enabled.
 
-Accounts are grouped by level, so the bucket policy holds at most two delegation statements no matter how many accounts you list. That matters because bucket policies are capped at 20KB. Listing the same account at both levels is harmless — grants are additive, so it ends up with write.
+`read` grants `GetObject` plus object versions and tagging. `write` adds `PutObject`, the delete actions, and multipart uploads. Both grant bucket listing (`ListBucket`, `ListBucketVersions`, `GetBucketLocation`), since a read-only consumer still needs to enumerate objects.
+
+Accounts are grouped by level, so the bucket policy holds at most three delegation statements no matter how many accounts you list. That matters because bucket policies are capped at 20KB. Listing the same account at both levels is harmless — grants are additive, so it ends up with write.
+
+One S3 constraint shapes the statements: `s3:DataAccessPointAccount` is only carried by the `accesspoint` and `accesspointobject` resource types, and S3 validates the condition against every action/resource combination in a statement. Bucket-scoped and object-scoped actions therefore live in separate statements, targeting the bucket ARN and `bucket/*` respectively. Mixing them yields pairs the condition cannot apply to, and `PutBucketPolicy` rejects the whole document with `MalformedPolicy`. For the same reason `s3:ListBucketMultipartUploads` cannot be delegated at all — it has no access point resource type.
 
 ### Limitations
 `trusted_access_points` cannot be combined with `public_read_only`. A public bucket policy activates `RestrictPublicBuckets`, which blocks all cross-account access — including non-public delegation to specific accounts. Setting both fails at apply time rather than silently at runtime.

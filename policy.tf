@@ -2,30 +2,42 @@ locals {
   crossaccount_enabled = length(var.trusted_access_points) > 0
   needs_bucket_policy  = var.public_read_only || local.crossaccount_enabled
 
-  // Grouped by access level so the document holds at most one statement per level rather than one
-  // per account. Bucket policies are capped at 20KB.
+  // Grouped by access level so the document holds a fixed number of statements rather than one per
+  // account. Bucket policies are capped at 20KB.
+  trusted_all_account_ids   = distinct([for ap in var.trusted_access_points : ap.account_id])
   trusted_read_account_ids  = distinct([for ap in var.trusted_access_points : ap.account_id if ap.access_level == "read"])
   trusted_write_account_ids = distinct([for ap in var.trusted_access_points : ap.account_id if ap.access_level == "write"])
 
-  crossaccount_read_actions = [
+  // Bucket-scoped and object-scoped actions must be split across separate statements. S3 validates
+  // the condition against every action/resource combination in a statement, so mixing bucket-level
+  // actions with `bucket/*` (or object-level actions with the bucket ARN) produces pairs the
+  // s3:DataAccessPointAccount condition cannot apply to, and PutBucketPolicy rejects the whole
+  // document with MalformedPolicy.
+  //
+  // Every action listed here must have an `accesspoint` or `accesspointobject` resource type, since
+  // those are the only resource types that carry s3:DataAccessPointAccount. Notably
+  // s3:ListBucketMultipartUploads does not, so it cannot be delegated this way.
+  crossaccount_bucket_actions = [
     "s3:GetBucketLocation",
-    "s3:GetObject",
-    "s3:GetObjectTagging",
-    "s3:GetObjectVersion",
-    "s3:GetObjectVersionTagging",
     "s3:ListBucket",
     "s3:ListBucketVersions",
   ]
 
+  crossaccount_read_object_actions = [
+    "s3:GetObject",
+    "s3:GetObjectTagging",
+    "s3:GetObjectVersion",
+    "s3:GetObjectVersionTagging",
+  ]
+
   // Write is a superset of read. An account granted write can still be narrowed to less by its own
   // access point policy, but it can never exceed what is granted here.
-  crossaccount_write_actions = concat(local.crossaccount_read_actions, [
+  crossaccount_write_object_actions = concat(local.crossaccount_read_object_actions, [
     "s3:AbortMultipartUpload",
     "s3:DeleteObject",
     "s3:DeleteObjectTagging",
     "s3:DeleteObjectVersion",
     "s3:DeleteObjectVersionTagging",
-    "s3:ListBucketMultipartUploads",
     "s3:ListMultipartUploadParts",
     "s3:PutObject",
     "s3:PutObjectTagging",
@@ -77,20 +89,44 @@ data "aws_iam_policy_document" "this" {
   // grant-agnostic: each consumer creates its own access point in its own account and controls
   // which of its applications may use it, so these statements never change per consumer.
   //
-  // Conditioning on a fixed s3:DataAccessPointAccount keeps the statements non-public, so
+  // Conditioning on fixed s3:DataAccessPointAccount values keeps the statements non-public, so
   // block_public_policy can stay enabled.
+
+  // Bucket-scoped listing is identical for both access levels, so every trusted account shares one
+  // statement. Read-only accounts are still expected to list the bucket.
+  dynamic "statement" {
+    for_each = length(local.trusted_all_account_ids) > 0 ? [local.trusted_all_account_ids] : []
+
+    content {
+      sid     = "DelegateListToTrustedAccessPoints"
+      effect  = "Allow"
+      actions = local.crossaccount_bucket_actions
+      principals {
+        identifiers = ["*"]
+        type        = "AWS"
+      }
+      resources = [aws_s3_bucket.this.arn]
+
+      condition {
+        test     = "StringEquals"
+        variable = "s3:DataAccessPointAccount"
+        values   = statement.value
+      }
+    }
+  }
+
   dynamic "statement" {
     for_each = length(local.trusted_read_account_ids) > 0 ? [local.trusted_read_account_ids] : []
 
     content {
       sid     = "DelegateReadToTrustedAccessPoints"
       effect  = "Allow"
-      actions = local.crossaccount_read_actions
+      actions = local.crossaccount_read_object_actions
       principals {
         identifiers = ["*"]
         type        = "AWS"
       }
-      resources = [aws_s3_bucket.this.arn, "${aws_s3_bucket.this.arn}/*"]
+      resources = ["${aws_s3_bucket.this.arn}/*"]
 
       condition {
         test     = "StringEquals"
@@ -106,12 +142,12 @@ data "aws_iam_policy_document" "this" {
     content {
       sid     = "DelegateWriteToTrustedAccessPoints"
       effect  = "Allow"
-      actions = local.crossaccount_write_actions
+      actions = local.crossaccount_write_object_actions
       principals {
         identifiers = ["*"]
         type        = "AWS"
       }
-      resources = [aws_s3_bucket.this.arn, "${aws_s3_bucket.this.arn}/*"]
+      resources = ["${aws_s3_bucket.this.arn}/*"]
 
       condition {
         test     = "StringEquals"
