@@ -1,4 +1,4 @@
-# 0.2.1 (Aug 10, 2026)
+# 0.3.0 (Aug 10, 2026)
 * Added `trusted_access_points` to share this bucket with other AWS accounts through S3 access points, each granted `read` or `write`.
 * The bucket policy is now created whenever any statement applies, not only for `public_read_only`. `aws_s3_bucket_policy.public_read_only` was renamed to `aws_s3_bucket_policy.this`; a `moved` block handles the state migration.
 * `public_read_only` and `trusted_access_points` are mutually exclusive and now fail at apply time rather than silently at runtime.
