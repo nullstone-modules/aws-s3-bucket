@@ -22,3 +22,8 @@ output "db_region" {
   value       = aws_s3_bucket.this.region
   description = "string ||| The region of the created S3 bucket."
 }
+
+output "aws_account_id" {
+  value       = data.aws_caller_identity.this.account_id
+  description = "string ||| The AWS account that owns this S3 bucket. S3 bucket ARNs contain no account ID, so consumers that need it (such as cross-account access points) rely on this output."
+}

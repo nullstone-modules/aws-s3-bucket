@@ -4,9 +4,14 @@ friendly_name: S3 Bucket
 description: |
     Creates a private S3 bucket as a datastore that can connect to Nullstone apps.
 category: datastore
-type: bucket/aws-s3
-appCategories: []
-layer: database
-is_public: true
+subcategory: ""
 provider_types:
     - aws
+platform: s3
+subplatform: ""
+type: ""
+appCategories: []
+is_public: true
+tool_name: opentofu
+include: []
+source_url: https://github.com/nullstone-modules/aws-s3-bucket
