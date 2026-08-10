@@ -53,9 +53,7 @@ variable "trusted_account_ids" {
   default     = []
   description = <<EOF
 A set of AWS account IDs that are allowed to reach this bucket through an S3 access point.
-Each listed account creates and owns its own access point, and decides which of its applications may
-use it -- so you grant trust once per account, not once per application.
-This cannot be combined with public_read_only: a public bucket policy activates RestrictPublicBuckets,
-which blocks all cross-account access.
+Each listed account creates and owns its own access point, and decides which of its applications may use it, so you grant trust once per account, not once per application.
+This cannot be combined with public_read_only because a public bucket policy activates RestrictPublicBuckets, which blocks all cross-account access.
 EOF
 }

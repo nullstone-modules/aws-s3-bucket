@@ -17,10 +17,9 @@ resource "aws_s3_bucket_policy" "this" {
   policy = data.aws_iam_policy_document.this.json
 
   lifecycle {
-    // A single public statement makes the entire document public, which activates
-    // RestrictPublicBuckets. That setting blocks all cross-account access -- including non-public
-    // delegation to specific accounts -- so these two features cannot coexist. It would otherwise
-    // fail silently at runtime rather than at apply time.
+    // A single public statement makes the entire document public, which activates RestrictPublicBuckets.
+    // That setting blocks all cross-account access, including non-public delegation to specific accounts, so these two features cannot coexist.
+    // It would otherwise fail silently at runtime rather than at apply time.
     precondition {
       condition     = !(var.public_read_only && local.crossaccount_enabled)
       error_message = "public_read_only cannot be combined with trusted_account_ids. A public bucket policy activates RestrictPublicBuckets, which blocks the cross-account access point delegation."
