@@ -45,6 +45,12 @@ save and retrieve files without having to think about persistence. For more info
 | `db_protocol`             | URI Protocol (always `s3`)                                                     |
 | `db_region`               | The region of the created S3 bucket.                                           |
 | `aws_account_id`          | The AWS account that owns this bucket. S3 bucket ARNs contain no account ID, so consumers that need it rely on this output. |
+| `kms_key_arn`             | The customer-managed KMS key encrypting this bucket, passed to capabilities so they can grant decryption. Blank unless a key is connected. |
+
+## Connections
+| Name                      | Contract           | Optional | Description                                                                    |
+| ------------------------- |--------------------|----------|--------------------------------------------------------------------------------|
+| `kms_key`                 | `datastore/aws/kms` | yes      | A customer-managed KMS key to encrypt this bucket with. Required to share an encrypted bucket across accounts. |
 
 ---
 
@@ -80,4 +86,34 @@ One S3 constraint shapes the statements: `s3:DataAccessPointAccount` is only car
 ### Limitations
 `trusted_access_points` cannot be combined with `public_read_only`. A public bucket policy activates `RestrictPublicBuckets`, which blocks all cross-account access — including non-public delegation to specific accounts. Setting both fails at apply time rather than silently at runtime.
 
-**Encryption is not yet handled.** While `server_side_encryption` is on, this bucket uses the AWS-managed `aws/s3` KMS key, whose key policy is immutable. Objects encrypted with it **cannot be read from another account** under any configuration — the access point will be created successfully and listing will work, but every `GetObject` fails on decrypt. Until this module supports an encryption mode that works across accounts, cross-account sharing is only usable with `server_side_encryption = false`.
+### Encryption
+
+By default this bucket is encrypted with the AWS-managed `aws/s3` KMS key, whose key policy is immutable and grants only the owning account. Objects encrypted with it **cannot be read from another account** under any configuration — the access point is created successfully and listing works, but every `GetObject` fails on decrypt.
+
+To share an encrypted bucket, connect an `aws-kms-key` datastore and list the same accounts on it:
+
+```yaml
+datastores:
+  usage-stats-archiver:
+    module: nullstone/aws-s3-bucket
+    connections:
+      kms_key: usage-stats-key
+    vars:
+      trusted_access_points:
+        - { account_id: "490532603356", access_level: read }
+
+  usage-stats-key:
+    module: nullstone/aws-kms-key
+    vars:
+      trusted_accounts:
+        - { account_id: "490532603356", access_level: read }
+      via_services: ["s3.us-east-1.amazonaws.com"]
+```
+
+The two lists are deliberately separate. A key can back more than one bucket, and the bucket's workspace cannot write the key's policy, so each side declares its own trust. If they drift, S3 allows the request and KMS refuses it. A `check` block warns at plan time when a bucket has `trusted_access_points` but no connected key.
+
+Setting `server_side_encryption = false` also works and is simpler: S3 still applies SSE-S3 (AES256) by default, which carries no key policy and crosses accounts freely. You lose the KMS audit trail and per-key revocation, not encryption at rest.
+
+**Switching an existing bucket to a customer-managed key is forward-only.** Default encryption applies at write time, so objects already stored keep the key they were written with — AWS never re-encrypts in place. Objects written under `aws/s3` stay unreadable cross-account even after a key is connected. To migrate them, copy in place from the owning account (`aws s3 cp s3://bucket/ s3://bucket/ --recursive --sse aws:kms --sse-kms-key-id <arn>`), and note that with `versioning` on this writes a new version of every object while the old, still-unreadable versions remain billable until a lifecycle rule expires them.
+
+**In-account reads and writes are not interrupted.** A customer-managed key would normally require every caller to hold `kms:Decrypt`, breaking apps that were working a moment earlier. `aws-kms-key` prevents that with its `allow_account_use` setting, on by default, which reproduces the statement AWS-managed keys carry. Apps in this account keep working the instant the key is connected, with no IAM change and no re-apply. If you set `allow_account_use = false`, grant each app the key **before** connecting it, or the first object written under the new key becomes unreadable.

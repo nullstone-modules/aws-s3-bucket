@@ -1,3 +1,7 @@
+# 0.3.3 (Aug 10, 2026)
+* Added an optional `kms_key` connection to encrypt this bucket with a customer-managed KMS key from the `aws-kms-key` module.
+* Added a `check` that warns when `trusted_access_points` is set on a bucket still encrypted with `aws/s3`, which lists successfully and then fails on every object.
+
 # 0.3.2 (Aug 10, 2026)
 * Removed invalid s3 actions that are incompatible with access point IAM conditions.
 

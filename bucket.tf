@@ -57,8 +57,17 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm = "aws:kms"
+
+      // Null rather than an empty string so that a bucket with no key connected produces exactly
+      // the configuration it had before this argument existed, and no diff.
+      kms_master_key_id = local.kms_key_arn != "" ? local.kms_key_arn : null
     }
+
+    // S3 Bucket Keys collapse the per-object KMS calls into one per bucket per short interval,
+    // which is the difference between a KMS bill that tracks object count and one that doesn't.
+    // Only set alongside a customer-managed key, to leave existing buckets untouched.
+    bucket_key_enabled = local.kms_key_arn != "" ? true : null
   }
 
-  count = var.server_side_encryption ? 1 : 0
+  count = local.encryption_enabled ? 1 : 0
 }
