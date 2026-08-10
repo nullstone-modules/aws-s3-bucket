@@ -47,3 +47,15 @@ A set of HTTP verbs that are allowed to be used when making CORS requests to thi
 This is optional and only used if you also specify cors_origins.
 EOF
 }
+
+variable "crossaccount_account_ids" {
+  type        = set(string)
+  default     = []
+  description = <<EOF
+A set of AWS account IDs that are allowed to reach this bucket through an S3 access point.
+Each listed account creates and owns its own access point, and decides which of its applications may
+use it -- so you grant trust once per account, not once per application.
+This cannot be combined with public_read_only: a public bucket policy activates RestrictPublicBuckets,
+which blocks all cross-account access.
+EOF
+}
