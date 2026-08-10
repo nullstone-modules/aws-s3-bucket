@@ -18,7 +18,6 @@ locals {
   // those are the only resource types that carry s3:DataAccessPointAccount. Notably
   // s3:ListBucketMultipartUploads does not, so it cannot be delegated this way.
   crossaccount_bucket_actions = [
-    "s3:GetBucketLocation",
     "s3:ListBucket",
     "s3:ListBucketVersions",
   ]

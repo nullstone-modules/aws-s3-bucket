@@ -1,3 +1,6 @@
+# 0.3.2 (Aug 10, 2026)
+* Removed invalid s3 actions that are incompatible with access point IAM conditions.
+
 # 0.3.1 (Aug 10, 2026)
 * Delegation statements are split by resource scope. `s3:DataAccessPointAccount` only applies to access point resource types, so mixing bucket-scoped and object-scoped actions in one statement is rejected as `MalformedPolicy`.
 
