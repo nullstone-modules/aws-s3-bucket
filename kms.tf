@@ -15,12 +15,12 @@ locals {
   encryption_enabled = var.server_side_encryption || local.kms_key_arn != ""
 }
 
-// Delegating the bucket to another account's access points does nothing for the objects themselves
-// if they are encrypted under a key that account can never be granted. The request gets past every
-// S3 policy and then fails on KMS, which reports AccessDenied on the key rather than on the bucket.
+// Delegating the bucket to another account does nothing for the objects themselves if they are
+// encrypted under a key that account can never be granted. The request gets past every S3 policy
+// and then fails on KMS, which reports AccessDenied on the key rather than on the bucket.
 check "crossaccount_encryption" {
   assert {
-    condition     = !(length(var.trusted_access_points) > 0 && var.server_side_encryption && local.kms_key_arn == "")
-    error_message = "This bucket is shared with other accounts through trusted_access_points, but it is encrypted with the AWS-managed `aws/s3` key, which cannot be shared. Those accounts will be able to list the bucket and will get AccessDenied on every object. Connect an aws-kms-key datastore to this bucket, or set server_side_encryption to false."
+    condition     = !(length(var.trusted_account_ids) > 0 && var.server_side_encryption && local.kms_key_arn == "")
+    error_message = "This bucket is shared with other accounts through trusted_account_ids, but it is encrypted with the AWS-managed `aws/s3` key, which cannot be shared. Those accounts will be able to list the bucket and will get AccessDenied on every object. Connect an aws-kms-key datastore to this bucket, or set server_side_encryption to false."
   }
 }

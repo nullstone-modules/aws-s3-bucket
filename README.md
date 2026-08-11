@@ -34,7 +34,7 @@ save and retrieve files without having to think about persistence. For more info
 | `public_read_only`        | boolean          | `false`    | If toggled on, the contents of this S3 bucket will be made publicly accessible. Public access will be read-only.                                                                                                                                           |
 | `cors_orgins`             | list(string)     | `[]`       | A set of origins that are allowed to make GET requests to this S3 bucket.                                                                                                                                                                                  |
 | `cors_methods`            | list(string)     | `["GET"]`  | A set of HTTP verbs that are allowed to be used when making CORS requests to this S3 bucket.                                                                                                                                                               |
-| `trusted_access_points` | list(object)   | `[]`       | AWS accounts allowed to reach this bucket through an S3 access point, each with an access level of `read` or `write`. See [Sharing across AWS accounts](#sharing-across-aws-accounts).                                                                       |
+| `trusted_account_ids` | list(object)   | `[]`       | AWS accounts allowed to read or write this bucket, each with an access level of `read` or `write`. See [Sharing across AWS accounts](#sharing-across-aws-accounts).                                                                       |
 
 ## Outputs
 | Name                      | Description                                                                    |
@@ -62,29 +62,29 @@ This S3 bucket can be connected to many applications in order to share files bet
 ---
 
 ## Sharing across AWS accounts
-To let an application in a different AWS account use this bucket, add that account to `trusted_access_points` with the access level it should get. The application then connects through an `aws-s3-access-point` datastore in its own account.
+To let an application in a different AWS account use this bucket, add that account to `trusted_account_ids` with the access level it should get. The application then connects through an `aws-s3-access-point` datastore in its own account.
 
 ```hcl
-trusted_access_points = [
+trusted_account_ids = [
   { account_id = "111122223333", access_level = "read" },
   { account_id = "444455556666", access_level = "write" },
 ]
 ```
 
-You grant trust **once per account, not once per application**. The consuming account creates and owns its own S3 access point, and decides which of its applications may use it. This bucket's policy simply delegates to any access point owned by a trusted account, so it never needs to change as applications come and go.
+You grant trust **once per account, not once per application**. The consuming account creates and owns its own S3 access point, and decides which of its applications may use it. This bucket's policy simply delegates to the trusted account, so it never needs to change as applications come and go.
 
 The level you set is a **ceiling**. The consuming account can narrow it further with its own access point policy or IAM policies, but it can never exceed what you grant here. `write` includes read.
 
-The delegation statements match on `s3:DataAccessPointAccount`. Because the account IDs are fixed, they are **not** considered public, so `block_public_policy` remains enabled.
+The delegation statements name each trusted account's root as the principal. Because the principals are fixed, the statements are **not** considered public, so `block_public_policy` remains enabled.
 
-`read` grants `GetObject` plus object versions and tagging. `write` adds `PutObject`, the delete actions, and multipart uploads. Both grant bucket listing (`ListBucket`, `ListBucketVersions`, `GetBucketLocation`), since a read-only consumer still needs to enumerate objects.
+The grant is to the **account**, not to its access points. AWS documents delegating with a `s3:DataAccessPointAccount` condition instead, but that key is only defined for the `accesspoint` and `accesspointobject` resource types (see the [Service Authorization Reference](https://docs.aws.amazon.com/service-authorization/latest/reference/list_s3.html)) — never for `bucket` or `object`. S3 enforces this for object reads: a bucket policy statement conditioning `s3:GetObject` on it can never match, so the consumer can list the bucket and read tags while every `GetObject` fails with `no resource-based policy allows the s3:GetObject action`. No condition key S3 supports on bucket-typed resources can pin an account to its access points, so the trusted account could also reach the bucket directly — its own IAM policies remain the gate on which principals actually can.
+
+`read` grants `GetObject` plus object versions and tagging. `write` adds `PutObject`, the delete actions, and multipart uploads. Both grant bucket listing (`ListBucket`, `ListBucketVersions`), since a read-only consumer still needs to enumerate objects. `GetBucketLocation` and `ListBucketMultipartUploads` are not granted — neither can be addressed through an access point at all.
 
 Accounts are grouped by level, so the bucket policy holds at most three delegation statements no matter how many accounts you list. That matters because bucket policies are capped at 20KB. Listing the same account at both levels is harmless — grants are additive, so it ends up with write.
 
-One S3 constraint shapes the statements: `s3:DataAccessPointAccount` is only carried by the `accesspoint` and `accesspointobject` resource types, and S3 validates the condition against every action/resource combination in a statement. Bucket-scoped and object-scoped actions therefore live in separate statements, targeting the bucket ARN and `bucket/*` respectively. Mixing them yields pairs the condition cannot apply to, and `PutBucketPolicy` rejects the whole document with `MalformedPolicy`. For the same reason `s3:ListBucketMultipartUploads` cannot be delegated at all — it has no access point resource type.
-
 ### Limitations
-`trusted_access_points` cannot be combined with `public_read_only`. A public bucket policy activates `RestrictPublicBuckets`, which blocks all cross-account access — including non-public delegation to specific accounts. Setting both fails at apply time rather than silently at runtime.
+`trusted_account_ids` cannot be combined with `public_read_only`. A public bucket policy activates `RestrictPublicBuckets`, which blocks all cross-account access — including non-public delegation to specific accounts. Setting both fails at apply time rather than silently at runtime.
 
 ### Encryption
 
@@ -99,7 +99,7 @@ datastores:
     connections:
       kms_key: usage-stats-key
     vars:
-      trusted_access_points:
+      trusted_account_ids:
         - { account_id: "490532603356", access_level: read }
 
   usage-stats-key:
@@ -110,7 +110,7 @@ datastores:
       via_services: ["s3.us-east-1.amazonaws.com"]
 ```
 
-The two lists are deliberately separate. A key can back more than one bucket, and the bucket's workspace cannot write the key's policy, so each side declares its own trust. If they drift, S3 allows the request and KMS refuses it. A `check` block warns at plan time when a bucket has `trusted_access_points` but no connected key.
+The two lists are deliberately separate. A key can back more than one bucket, and the bucket's workspace cannot write the key's policy, so each side declares its own trust. If they drift, S3 allows the request and KMS refuses it. A `check` block warns at plan time when a bucket has `trusted_account_ids` but no connected key.
 
 Setting `server_side_encryption = false` also works and is simpler: S3 still applies SSE-S3 (AES256) by default, which carries no key policy and crosses accounts freely. You lose the KMS audit trail and per-key revocation, not encryption at rest.
 

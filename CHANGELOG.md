@@ -1,3 +1,7 @@
+# 0.4.0 (Aug 11, 2026)
+* Delegation statements now name each trusted account's root as the principal instead of matching on `s3:DataAccessPointAccount`.
+* **Breaking:** Renamed `var.trusted_access_points` to `var.trusted_account_ids` as part of the fix to cross-account access.
+
 # 0.3.3 (Aug 10, 2026)
 * Added an optional `kms_key` connection to encrypt this bucket with a customer-managed KMS key from the `aws-kms-key` module.
 * Added a `check` that warns when `trusted_access_points` is set on a bucket still encrypted with `aws/s3`, which lists successfully and then fails on every object.

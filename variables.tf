@@ -48,27 +48,28 @@ This is optional and only used if you also specify cors_origins.
 EOF
 }
 
-variable "trusted_access_points" {
+variable "trusted_account_ids" {
   type = list(object({
     account_id   = string
     access_level = string
   }))
   default     = []
   description = <<EOF
-A list of AWS accounts allowed to reach this bucket through an S3 access point, and how much access each one gets.
+A list of AWS accounts allowed to read or write this bucket, typically through an S3 access point they own, and how much access each one gets.
 `account_id` is a 12-digit AWS account ID. `access_level` is either "read" or "write", where "write" also includes read.
-Each listed account creates and owns its own access point, and decides which of its applications may use it, so you grant trust once per account, not once per application.
-The level you grant here is a ceiling: the consuming account can narrow it further with its own access point policy, but it can never widen it.
+Each listed account decides which of its own principals may use the grant (usually via an access point it creates), so you grant trust once per account, not once per application.
+The level you grant here is a ceiling: the consuming account can narrow it further with its own access point and IAM policies, but it can never widen it.
+The grant is to the account itself, not pinned to its access points: S3 does not honor the access point condition keys on bucket-typed resources, so a via-access-point-only restriction is not enforceable in a bucket policy.
 This cannot be combined with public_read_only because a public bucket policy activates RestrictPublicBuckets, which blocks all cross-account access.
 EOF
 
   validation {
-    condition     = alltrue([for ap in var.trusted_access_points : contains(["read", "write"], ap.access_level)])
+    condition     = alltrue([for acct in var.trusted_account_ids : contains(["read", "write"], acct.access_level)])
     error_message = "access_level must be either \"read\" or \"write\"."
   }
 
   validation {
-    condition     = alltrue([for ap in var.trusted_access_points : can(regex("^[0-9]{12}$", ap.account_id))])
+    condition     = alltrue([for acct in var.trusted_account_ids : can(regex("^[0-9]{12}$", acct.account_id))])
     error_message = "account_id must be a 12-digit AWS account ID."
   }
 }
