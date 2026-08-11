@@ -1,26 +1,32 @@
 locals {
-  lifecycle_transition_enabled = var.transition_to_ia_days > 0 || var.transition_to_glacier_days > 0
-  lifecycle_expiration_enabled = var.expiration_days > 0
-  lifecycle_noncurrent_enabled = var.noncurrent_version_expiration_days > 0 || var.noncurrent_versions_to_keep > 0
-  lifecycle_abort_mpu_enabled  = var.abort_incomplete_multipart_upload_days > 0
+  // Normalized so every policy has a filter of the same shape, whether or not it declared one. An
+  // absent filter and an empty filter both mean "every object", which is what S3 does with an empty
+  // Filter element.
+  lifecycle_filters = {
+    for policy in var.lifecycle_policies : policy.id => {
+      prefix                   = policy.filter == null ? null : policy.filter.prefix
+      object_size_greater_than = policy.filter == null ? null : policy.filter.object_size_greater_than
+      object_size_less_than    = policy.filter == null ? null : policy.filter.object_size_less_than
+      tags                     = policy.filter == null || try(policy.filter.tags, null) == null ? {} : policy.filter.tags
+    }
+  }
 
-  // Every rule is opt-in, so a bucket that sets none of these produces no lifecycle configuration at
-  // all rather than an empty one. A bucket created before this feature existed sees no diff.
-  //
-  // Note that noncurrent_versions_to_keep on its own contributes no rule -- it only modifies the
-  // noncurrent expiration rule. It still counts here so the misconfiguration reaches the
-  // precondition below and fails at plan time instead of being silently dropped.
-  any_lifecycle_rule = (
-    local.lifecycle_transition_enabled ||
-    local.lifecycle_expiration_enabled ||
-    local.lifecycle_noncurrent_enabled ||
-    local.lifecycle_abort_mpu_enabled ||
-    var.expire_delete_markers
-  )
+  // S3 accepts at most one condition directly inside Filter. Two or more have to be wrapped in an
+  // `and` block, and `and` in turn is invalid with fewer than two. Counting the conditions each
+  // policy actually set is what decides which of the two forms gets emitted below. Every tag counts
+  // separately, so two tags alone already require `and`.
+  lifecycle_filter_conditions = {
+    for id, filter in local.lifecycle_filters : id => (
+      (filter.prefix != null ? 1 : 0) +
+      (filter.object_size_greater_than != null ? 1 : 0) +
+      (filter.object_size_less_than != null ? 1 : 0) +
+      length(filter.tags)
+    )
+  }
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "this" {
-  count = local.any_lifecycle_rule ? 1 : 0
+  count = length(var.lifecycle_policies) > 0 ? 1 : 0
 
   bucket = aws_s3_bucket.this.id
 
@@ -29,130 +35,87 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
   // which objects a rule moves for buckets whose own configuration never changed.
   transition_default_minimum_object_size = "all_storage_classes_128K"
 
-  // Storage class transitions come first so that objects age down through the tiers before any
-  // expiration rule removes them.
   dynamic "rule" {
-    for_each = local.lifecycle_transition_enabled ? [1] : []
+    for_each = var.lifecycle_policies
 
     content {
-      id     = "transition-storage-class"
-      status = "Enabled"
+      id     = rule.value.id
+      status = rule.value.status
 
-      // An empty filter applies the rule to every object. The provider requires a filter or a
-      // prefix on each rule, so this cannot be omitted.
-      filter {}
+      filter {
+        // Only populated in the single-condition case. With two or more, these stay null and the
+        // `and` block below carries all of them instead.
+        prefix                   = local.lifecycle_filter_conditions[rule.value.id] == 1 ? local.lifecycle_filters[rule.value.id].prefix : null
+        object_size_greater_than = local.lifecycle_filter_conditions[rule.value.id] == 1 ? local.lifecycle_filters[rule.value.id].object_size_greater_than : null
+        object_size_less_than    = local.lifecycle_filter_conditions[rule.value.id] == 1 ? local.lifecycle_filters[rule.value.id].object_size_less_than : null
 
-      dynamic "transition" {
-        for_each = var.transition_to_ia_days > 0 ? [1] : []
+        dynamic "tag" {
+          for_each = local.lifecycle_filter_conditions[rule.value.id] == 1 ? local.lifecycle_filters[rule.value.id].tags : {}
 
-        content {
-          days          = var.transition_to_ia_days
-          storage_class = "STANDARD_IA"
+          content {
+            key   = tag.key
+            value = tag.value
+          }
+        }
+
+        dynamic "and" {
+          for_each = local.lifecycle_filter_conditions[rule.value.id] > 1 ? [local.lifecycle_filters[rule.value.id]] : []
+
+          content {
+            prefix                   = and.value.prefix
+            object_size_greater_than = and.value.object_size_greater_than
+            object_size_less_than    = and.value.object_size_less_than
+            tags                     = length(and.value.tags) > 0 ? and.value.tags : null
+          }
         }
       }
 
-      // Glacier Instant Retrieval rather than Glacier Flexible Retrieval: objects stay readable with
-      // millisecond latency and no restore step, so a transition can never break an application
-      // that still reads the bucket. The tradeoff is a 90-day minimum billing duration.
       dynamic "transition" {
-        for_each = var.transition_to_glacier_days > 0 ? [1] : []
+        for_each = rule.value.transitions
 
         content {
-          days          = var.transition_to_glacier_days
-          storage_class = "GLACIER_IR"
+          days          = transition.value.days
+          date          = transition.value.date
+          storage_class = transition.value.storage_class
         }
       }
-    }
-  }
 
-  dynamic "rule" {
-    for_each = local.lifecycle_expiration_enabled ? [1] : []
+      dynamic "expiration" {
+        for_each = rule.value.expiration == null ? [] : [rule.value.expiration]
 
-    content {
-      id     = "expire-current-versions"
-      status = "Enabled"
-
-      filter {}
-
-      expiration {
-        days = var.expiration_days
+        content {
+          days                         = expiration.value.days
+          date                         = expiration.value.date
+          expired_object_delete_marker = expiration.value.expired_object_delete_marker
+        }
       }
-    }
-  }
 
-  dynamic "rule" {
-    for_each = local.lifecycle_noncurrent_enabled ? [1] : []
+      dynamic "noncurrent_version_transition" {
+        for_each = rule.value.noncurrent_version_transitions
 
-    content {
-      id     = "expire-noncurrent-versions"
-      status = "Enabled"
-
-      filter {}
-
-      noncurrent_version_expiration {
-        noncurrent_days = var.noncurrent_version_expiration_days
-
-        // Null rather than 0 so the rule is written exactly as it was before this argument was
-        // offered when the bucket does not use it.
-        newer_noncurrent_versions = var.noncurrent_versions_to_keep > 0 ? var.noncurrent_versions_to_keep : null
+        content {
+          noncurrent_days           = noncurrent_version_transition.value.noncurrent_days
+          newer_noncurrent_versions = noncurrent_version_transition.value.newer_noncurrent_versions
+          storage_class             = noncurrent_version_transition.value.storage_class
+        }
       }
-    }
-  }
 
-  // Has to be its own rule. S3 rejects an Expiration element carrying both Days and
-  // ExpiredObjectDeleteMarker, so this cannot be folded into expire-current-versions.
-  dynamic "rule" {
-    for_each = var.expire_delete_markers ? [1] : []
+      dynamic "noncurrent_version_expiration" {
+        for_each = rule.value.noncurrent_version_expiration == null ? [] : [rule.value.noncurrent_version_expiration]
 
-    content {
-      id     = "expire-delete-markers"
-      status = "Enabled"
-
-      filter {}
-
-      expiration {
-        expired_object_delete_marker = true
+        content {
+          noncurrent_days           = noncurrent_version_expiration.value.noncurrent_days
+          newer_noncurrent_versions = noncurrent_version_expiration.value.newer_noncurrent_versions
+        }
       }
-    }
-  }
 
-  dynamic "rule" {
-    for_each = local.lifecycle_abort_mpu_enabled ? [1] : []
+      dynamic "abort_incomplete_multipart_upload" {
+        for_each = rule.value.abort_incomplete_multipart_upload_days == null ? [] : [rule.value.abort_incomplete_multipart_upload_days]
 
-    content {
-      id     = "abort-incomplete-multipart-uploads"
-      status = "Enabled"
-
-      filter {}
-
-      abort_incomplete_multipart_upload {
-        days_after_initiation = var.abort_incomplete_multipart_upload_days
+        content {
+          days_after_initiation = abort_incomplete_multipart_upload.value
+        }
       }
-    }
-  }
-
-  lifecycle {
-    // These constraints span multiple variables, so they cannot live in a variable validation block
-    // without requiring a newer language version than this module targets. S3 rejects each of them
-    // at apply time; catching them here reports the problem during plan instead.
-    precondition {
-      condition     = var.noncurrent_versions_to_keep == 0 || var.noncurrent_version_expiration_days > 0
-      error_message = "noncurrent_versions_to_keep only modifies the noncurrent version expiration rule, so it requires noncurrent_version_expiration_days to be set."
-    }
-
-    precondition {
-      condition     = !(local.lifecycle_expiration_enabled && var.transition_to_ia_days > 0) || var.expiration_days > var.transition_to_ia_days
-      error_message = "expiration_days must be greater than transition_to_ia_days. S3 rejects a rule that expires an object before or on the day it transitions."
-    }
-
-    precondition {
-      condition     = !(local.lifecycle_expiration_enabled && var.transition_to_glacier_days > 0) || var.expiration_days > var.transition_to_glacier_days
-      error_message = "expiration_days must be greater than transition_to_glacier_days. S3 rejects a rule that expires an object before or on the day it transitions."
-    }
-
-    precondition {
-      condition     = !(var.transition_to_ia_days > 0 && var.transition_to_glacier_days > 0) || var.transition_to_glacier_days > var.transition_to_ia_days
-      error_message = "transition_to_glacier_days must be greater than transition_to_ia_days. S3 rejects two transitions in the same rule that do not move an object forward through the storage classes."
     }
   }
 }

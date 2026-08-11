@@ -35,13 +35,7 @@ save and retrieve files without having to think about persistence. For more info
 | `cors_orgins`             | list(string)     | `[]`       | A set of origins that are allowed to make GET requests to this S3 bucket.                                                                                                                                                                                  |
 | `cors_methods`            | list(string)     | `["GET"]`  | A set of HTTP verbs that are allowed to be used when making CORS requests to this S3 bucket.                                                                                                                                                               |
 | `trusted_account_ids` | list(object)   | `[]`       | AWS accounts allowed to read or write this bucket, each with an access level of `read` or `write`. See [Sharing across AWS accounts](#sharing-across-aws-accounts).                                                                       |
-| `expiration_days`         | number           | `0`        | Permanently delete objects this many days after they are created. `0` never expires. See [Lifecycle](#lifecycle).                                                                                                                        |
-| `noncurrent_version_expiration_days` | number | `0`      | Delete old versions of an object this many days after they stop being current. `0` keeps every version forever.                                                                                                                          |
-| `noncurrent_versions_to_keep` | number      | `0`        | Always retain at least this many of the most recent noncurrent versions, even once they are older than the expiration window. Requires `noncurrent_version_expiration_days`.                                                              |
-| `abort_incomplete_multipart_upload_days` | number | `0`   | Abort multipart uploads that have not completed this many days after starting, and delete the parts already uploaded. `0` leaves them in place.                                                                                           |
-| `transition_to_ia_days`   | number           | `0`        | Move objects to Standard-Infrequent Access this many days after they are created. Must be `0` or at least `30`.                                                                                                                           |
-| `transition_to_glacier_days` | number        | `0`        | Move objects to Glacier Instant Retrieval this many days after they are created. `0` never transitions.                                                                                                                                   |
-| `expire_delete_markers`   | boolean          | `false`    | Remove delete markers that have no object versions left underneath them.                                                                                                                                                                 |
+| `lifecycle_policies`      | list(object)     | `[]`       | Rules for automatically expiring, archiving, or transitioning objects. See [Lifecycle](#lifecycle).                                                                                                                                       |
 
 ## Outputs
 | Name                      | Description                                                                    |
@@ -70,40 +64,75 @@ This S3 bucket can be connected to many applications in order to share files bet
 
 ## Lifecycle
 
-By default nothing in this bucket ever ages out. The lifecycle variables let you expire objects, clean up old versions, reclaim failed uploads, and move data to cheaper storage classes. Every one of them is off by default, so a bucket that sets none of them has no lifecycle configuration at all.
+By default nothing in this bucket ever ages out. `lifecycle_policies` is a list of rules that expire objects, clean up old versions, reclaim failed uploads, and move data to cheaper storage classes. An empty list, the default, creates no lifecycle configuration at all.
+
+Each policy has an `id`, an optional `filter` choosing which objects it applies to, and one or more actions. Omit the filter to apply the rule to every object.
+
+```hcl
+lifecycle_policies = [
+  {
+    id = "expire-logs"
+    filter      = { prefix = "logs/" }
+    expiration  = { days = 90 }
+  },
+  {
+    id = "archive-then-delete"
+    transitions = [
+      { days = 30, storage_class = "STANDARD_IA" },
+      { days = 90, storage_class = "GLACIER_IR" },
+    ]
+    expiration = { days = 2555 }
+  },
+  {
+    id = "reclaim-failed-uploads"
+    abort_incomplete_multipart_upload_days = 7
+  },
+]
+```
+
+The full set of actions and conditions is documented on the variable itself.
 
 ### Versioning is why this matters
 
 `versioning` defaults to **on**, which means every overwrite of an object leaves the previous copy behind as a noncurrent version, and every delete leaves a delete marker. Neither is visible when you list the bucket, and both are billed as storage indefinitely. A bucket that has been overwriting the same objects for a year is paying for a year of copies.
 
-`noncurrent_version_expiration_days` is the rule that reclaims them:
+`noncurrent_version_expiration` is the action that reclaims them:
 
 ```hcl
-noncurrent_version_expiration_days = 30
-noncurrent_versions_to_keep        = 3
+lifecycle_policies = [
+  {
+    id = "expire-old-versions"
+    noncurrent_version_expiration = {
+      noncurrent_days           = 30
+      newer_noncurrent_versions = 3
+    }
+  },
+]
 ```
 
-That expires versions 30 days after they stop being current, while always keeping the 3 most recent regardless of age — so there is still something to roll back to for an object that has not changed in months. `noncurrent_versions_to_keep` on its own does nothing and fails at plan time; it only modifies the age-based rule.
+That expires versions 30 days after they stop being current, while always keeping the 3 most recent regardless of age — so there is still something to roll back to for an object that has not changed in months.
 
-These rules apply to whatever noncurrent versions exist, not to whether versioning is currently on. Turning `versioning` off **suspends** it rather than removing history, so versions accumulated while it was on stay until a rule expires them.
+This applies to whatever noncurrent versions exist, not to whether versioning is currently on. Turning `versioning` off **suspends** it rather than removing history, so versions accumulated while it was on stay until a rule expires them.
 
-`expiration_days` behaves differently than it looks on a versioned bucket: it deletes the *current* version and leaves a delete marker, rather than removing the object outright. The versions underneath are then cleaned up by `noncurrent_version_expiration_days`, and the leftover markers by `expire_delete_markers`. On a versioned bucket, expiring objects usually means setting all three.
+`expiration` behaves differently than it looks on a versioned bucket: it deletes the *current* version and leaves a delete marker, rather than removing the object outright. The versions underneath are then cleaned up by `noncurrent_version_expiration`, and the leftover markers by `expired_object_delete_marker`. On a versioned bucket, fully expiring objects usually means all three.
+
+`expired_object_delete_marker` needs its own policy — S3 rejects an expiration carrying both it and `days`, so the two cannot share a rule.
 
 ### Storage classes
 
-`transition_to_ia_days` requires at least 30 days — S3 will not move an object to Standard-IA before it has spent 30 days in Standard. `transition_to_glacier_days` uses **Glacier Instant Retrieval**, not Glacier Flexible Retrieval, so objects stay readable in milliseconds with no restore step and applications reading the bucket keep working. The tradeoff is that transitioned objects are billed for a minimum of 90 days, which makes it a poor fit for data that expires sooner than that.
+A transition to `STANDARD_IA` or `ONEZONE_IA` requires at least 30 days; S3 will not move an object to either before it has spent 30 days in Standard.
 
-Transitions must move objects forward and expiration must come last: `transition_to_ia_days` < `transition_to_glacier_days` < `expiration_days`. Violations fail at plan time rather than as an S3 error during apply.
+Prefer `GLACIER_IR` over `GLACIER`. Both are archive tiers at similar cost, but Glacier Instant Retrieval keeps objects readable in milliseconds with no restore step, so an application still fetching them keeps working. `GLACIER` and `DEEP_ARCHIVE` make objects unreadable until explicitly restored, which surfaces as errors rather than latency. All three carry a minimum billing duration (90 days, or 180 for `DEEP_ARCHIVE`), so they suit data kept far longer than that.
 
 Objects under 128KB are not transitioned. This is an S3 default the module pins explicitly, so it cannot shift under a provider upgrade.
 
-### Incomplete uploads
+### Filters
 
-`abort_incomplete_multipart_upload_days` reclaims the parts left behind by large uploads that failed partway through. These are invisible when listing the bucket but are billed as storage, and nothing removes them otherwise. Set it above the longest upload you expect to legitimately take.
+A filter with a single condition is applied directly. Two or more — a prefix plus a tag, two tags, or a size range — are combined into an S3 `And` operator automatically; you do not need to express that yourself.
 
 ### This resource is authoritative
 
-Setting any lifecycle variable makes this module the sole owner of the bucket's lifecycle configuration. Rules added by hand in the AWS console or by another tool will be removed on the next apply.
+Setting `lifecycle_policies` makes this module the sole owner of the bucket's lifecycle configuration. Rules added by hand in the AWS console or by another tool will be removed on the next apply.
 
 ---
 
