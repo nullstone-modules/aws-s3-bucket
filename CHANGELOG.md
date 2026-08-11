@@ -1,3 +1,7 @@
+# 0.5.0 (Aug 11, 2026)
+* Added lifecycle rules: `expiration_days`, `noncurrent_version_expiration_days`, `noncurrent_versions_to_keep`, `abort_incomplete_multipart_upload_days`, `transition_to_ia_days`, `transition_to_glacier_days`, and `expire_delete_markers`.
+* All lifecycle variables default to off, so an existing bucket that sets none of them produces no configuration and no diff.
+
 # 0.4.0 (Aug 11, 2026)
 * Delegation statements now name each trusted account's root as the principal instead of matching on `s3:DataAccessPointAccount`.
 * **Breaking:** Renamed `var.trusted_access_points` to `var.trusted_account_ids` as part of the fix to cross-account access.
