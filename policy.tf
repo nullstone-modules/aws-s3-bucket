@@ -22,6 +22,13 @@ locals {
   // supports on bucket-typed resources that could do that. The level granted here remains the
   // ceiling either way, and fixed principals keep the statements non-public, so
   // block_public_policy stays enabled.
+  // The bucket's own account. Delegating to other accounts is additive and never removes in-account
+  // access, but a caller reaching the bucket through an access point is authorized against the
+  // bucket as well as the access point, and that half is only satisfied by a bucket policy
+  // statement. Naming this account's root delegates to its identity policies rather than granting
+  // anything outright, so no application gains access it did not already have.
+  owning_account_principals = ["arn:aws:iam::${data.aws_caller_identity.this.account_id}:root"]
+
   trusted_all_principals   = [for id in local.trusted_all_account_ids : "arn:aws:iam::${id}:root"]
   trusted_read_principals  = [for id in local.trusted_read_account_ids : "arn:aws:iam::${id}:root"]
   trusted_write_principals = [for id in local.trusted_write_account_ids : "arn:aws:iam::${id}:root"]
@@ -124,6 +131,39 @@ data "aws_iam_policy_document" "this" {
       sid     = "DelegateReadToTrustedAccounts"
       effect  = "Allow"
       actions = local.crossaccount_read_object_actions
+      principals {
+        identifiers = statement.value
+        type        = "AWS"
+      }
+      resources = ["${aws_s3_bucket.this.arn}/*"]
+    }
+  }
+
+  // Held at the write level, which is the most the bucket's own account could already reach. Only
+  // emitted alongside the cross-account statements: without them the document either does not exist
+  // or holds nothing but the public grant, and in-account access is unaffected either way.
+  dynamic "statement" {
+    for_each = local.crossaccount_enabled ? [local.owning_account_principals] : []
+
+    content {
+      sid     = "DelegateListToOwningAccount"
+      effect  = "Allow"
+      actions = local.crossaccount_bucket_actions
+      principals {
+        identifiers = statement.value
+        type        = "AWS"
+      }
+      resources = [aws_s3_bucket.this.arn]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = local.crossaccount_enabled ? [local.owning_account_principals] : []
+
+    content {
+      sid     = "DelegateWriteToOwningAccount"
+      effect  = "Allow"
+      actions = local.crossaccount_write_object_actions
       principals {
         identifiers = statement.value
         type        = "AWS"

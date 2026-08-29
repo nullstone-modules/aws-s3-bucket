@@ -1,3 +1,6 @@
+# 0.5.1 (Aug 29, 2026)
+* The bucket policy now also delegates to the bucket's own account when `trusted_account_ids` is set, so a same-account caller reaching the bucket through an access point stays authorized against the bucket half of the request.
+
 # 0.5.0 (Aug 11, 2026)
 * Added `lifecycle_policies` to expire, archive, and transition objects.
 * Defaults to an empty list, so an existing bucket that does not set it produces no configuration and no diff.

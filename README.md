@@ -156,7 +156,9 @@ The grant is to the **account**, not to its access points. AWS documents delegat
 
 `read` grants `GetObject` plus object versions and tagging. `write` adds `PutObject`, the delete actions, and multipart uploads. Both grant bucket listing (`ListBucket`, `ListBucketVersions`), since a read-only consumer still needs to enumerate objects. `GetBucketLocation` and `ListBucketMultipartUploads` are not granted — neither can be addressed through an access point at all.
 
-Accounts are grouped by level, so the bucket policy holds at most three delegation statements no matter how many accounts you list. That matters because bucket policies are capped at 20KB. Listing the same account at both levels is harmless — grants are additive, so it ends up with write.
+The bucket's own account is delegated at the `write` level alongside them. Delegating to other accounts never takes in-account access away, but a same-account caller going through an access point is authorized against the bucket as well as the access point, and only a bucket policy statement satisfies that half. The statement names this account's root, so it delegates to identity policies here rather than granting anything on its own — no application gains access it did not already have.
+
+Accounts are grouped by level, so the bucket policy holds at most five delegation statements no matter how many accounts you list. That matters because bucket policies are capped at 20KB. Listing the same account at both levels is harmless — grants are additive, so it ends up with write.
 
 ### Limitations
 `trusted_account_ids` cannot be combined with `public_read_only`. A public bucket policy activates `RestrictPublicBuckets`, which blocks all cross-account access — including non-public delegation to specific accounts. Setting both fails at apply time rather than silently at runtime.
