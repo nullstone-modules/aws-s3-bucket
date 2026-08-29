@@ -160,6 +160,14 @@ The bucket's own account is delegated at the `write` level alongside them. Deleg
 
 Accounts are grouped by level, so the bucket policy holds at most five delegation statements no matter how many accounts you list. That matters because bucket policies are capped at 20KB. Listing the same account at both levels is harmless — grants are additive, so it ends up with write.
 
+### Object ownership
+
+The bucket uses `BucketOwnerEnforced`, so every object belongs to the bucket's account no matter which account wrote it, and ACLs are disabled.
+
+This matters as soon as a trusted account has `write`. An object written by another account is owned by *that* account, and a bucket owner cannot grant itself access to an object it does not own — its own bucket policy simply does not apply. The symptom is a reader **in the bucket's own account** getting `AccessDenied ... no resource-based policy allows the s3:GetObject action` on an object sitting in its own bucket. `BucketOwnerPreferred` does not prevent this; it only transfers ownership when the writer opts in with a `bucket-owner-full-control` ACL, which most SDK clients never send.
+
+**Ownership is not retroactive.** Objects written before this setting was applied keep the account that wrote them as owner and stay unreadable. Rewrite them — re-run the job that produced them, or have the writing account copy them in place — or grant the bucket owner explicitly with `aws s3api put-object-acl --acl bucket-owner-full-control` from the writing account before switching.
+
 ### Limitations
 `trusted_account_ids` cannot be combined with `public_read_only`. A public bucket policy activates `RestrictPublicBuckets`, which blocks all cross-account access — including non-public delegation to specific accounts. Setting both fails at apply time rather than silently at runtime.
 

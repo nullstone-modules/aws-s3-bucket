@@ -1,3 +1,6 @@
+# 0.5.2 (Aug 29, 2026)
+* Object ownership is now `BucketOwnerEnforced` on non-public buckets, so objects written by a trusted account belong to the bucket's account and are readable by it. 
+
 # 0.5.1 (Aug 29, 2026)
 * The bucket policy now also delegates to the bucket's own account when `trusted_account_ids` is set, so a same-account caller reaching the bucket through an access point stays authorized against the bucket half of the request.
 

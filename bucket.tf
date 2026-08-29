@@ -7,22 +7,37 @@ resource "aws_s3_bucket" "this" {
   force_destroy = true
 }
 
+// An object written by another account is owned by that account, and the bucket owner cannot grant
+// itself access to an object it does not own -- its own bucket policy does not apply, so a reader
+// in the bucket's account gets `AccessDenied ... no resource-based policy allows the s3:GetObject
+// action` on an object sitting in its own bucket. BucketOwnerPreferred does not prevent this: it
+// only transfers ownership when the writer opts in with a `bucket-owner-full-control` ACL, which
+// most SDK clients never send. BucketOwnerEnforced disables ACLs and makes the bucket owner the
+// owner of every object unconditionally.
+//
+// Kept as BucketOwnerPreferred for public buckets, which still set an ACL below. That combination
+// cannot receive cross-account writes anyway, since public_read_only and trusted_account_ids are
+// mutually exclusive.
 resource "aws_s3_bucket_ownership_controls" "default" {
   bucket = aws_s3_bucket.this.id
 
   rule {
-    object_ownership = "BucketOwnerPreferred"
+    object_ownership = var.public_read_only ? "BucketOwnerPreferred" : "BucketOwnerEnforced"
   }
 }
 
+// BucketOwnerEnforced rejects every ACL operation, including a redundant `private`, so the ACL is
+// only set where it does something. A private bucket is what S3 gives you with no ACL at all.
 resource "aws_s3_bucket_acl" "this" {
+  count = var.public_read_only ? 1 : 0
+
   depends_on = [
     aws_s3_bucket_ownership_controls.default,
     time_sleep.wait-for-public-access-block
   ]
 
   bucket = aws_s3_bucket.this.id
-  acl    = var.public_read_only ? "public-read" : "private"
+  acl    = "public-read"
 }
 
 resource "time_sleep" "wait-for-public-access-block" {
